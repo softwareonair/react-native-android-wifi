@@ -374,7 +374,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		networkAdded.invoke(true);
 	}
 
-	//Disconnect current Wifi.
+	//Disconnect current Wifi. callback
 	@ReactMethod
 	public void disconnect() {
 		wifi.disconnect();
