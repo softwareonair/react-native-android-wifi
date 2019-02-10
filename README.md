@@ -65,39 +65,43 @@ Sign device into a specific network:
 > This method doesn't have a callback when connection succeeded, check [this](https://github.com/devstepbcn/react-native-android-wifi/issues/4) issue.
 Added support for 'WPA2 PSK' wifi security mode and handling SSID for Lollipop and Kitkat.
 Added connection succeeded callback. Returns json value with the keys [status(bool), statusCode(explained below), result(String)];
-switch(statusCode){
-  case 0000:
-    if anything occurs i didnt foreseen, you will get this. but i didt not get this ever.
-    result: connection result unknown
-  break;
-  case 1000:
-    Connection Succeeded (even if there's no internet on wifi, you'll get this. but you'll be connected that wifi after all)
-  break;
-  case 1001:
-    Existing wifi configuration associated with the SSID that you're trying to connect, could not removed before connection attempt.
-  break;
-  case 1002:
-    New network configuration could not be set which requires for connection attempt
-  break;
-  case 1003:
-    Current network can not be disconnected before connection attempt
-  break;
-  case 1004:
-    network could not enabled before connection attempt
-  break;
-  case 1005:
-    Password incorrect
-    I did not find more efficient way to get this around so i checked connected SSID after 3000ms after the connection attempt to see if current SSID equals with the SSID that we're trying to connect. if its "0x", you've connected with nothing. so we can say that your password incorrect or something else prevents you to connect this network that i did not foreseen. if connection attempt unsuccessful, we remove that configuration so you wont deal with it again in case of wrong password entered.
-  break;
-}
+
 
 ```javascript
 //found returns true if ssid is in the range
-wifi.findAndConnect(ssid, password, (found) => {
-  if (found) {
-    console.log("wifi is in range");
-  } else {
-    console.log("wifi is not in range");
+wifi.findAndConnect(ssid, password, (connection) => {
+    switch(connection.statusCode){
+    case 0000:
+      //if anything occurs i didnt foreseen, you will get this. but i didt not get this ever.
+      //connection.result: "connection result unknown"
+      //connection.status: false
+    break;
+    case 1000:
+      //Connection Succeeded (even if there's no internet on wifi, you'll get this. but you'll be connected that wifi after all)
+      //connection.result: "Connection Succeeded"
+      //connection.status: true
+    break;
+    case 1001:
+      //Existing wifi configuration associated with the SSID that you're trying to connect, could not removed before connection attempt.
+      //connection.status: false
+    break;
+    case 1002:
+      //New network configuration could not be set which requires for connection attempt
+      //connection.status: false
+    break;
+    case 1003:
+      //Current network can not be disconnected before connection attempt
+      //connection.status: false
+    break;
+    case 1004:
+      //network could not enabled before connection attempt
+      //connection.status: false
+    break;
+    case 1005:
+      //Password incorrect
+      //connection.status: false
+      / * I did not find more efficient way to get this around so i checked connected SSID after 3000ms after the connection attempt to see if current SSID equals with the SSID that we're trying to connect. if its "0x", you've connected with nothing. so we can say that your password incorrect or something else prevents you to connect this network that i did not foreseen. if connection attempt unsuccessful, we remove that configuration so you wont deal with it again in case of wrong password entered. */
+    break;
   }
 });
 ```
