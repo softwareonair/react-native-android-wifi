@@ -100,7 +100,7 @@ wifi.findAndConnect(ssid, password, (connection) => {
     case 1005:
       //Password incorrect
       //connection.status: false
-      / * I did not find more efficient way to get this around so i checked connected SSID after 3000ms after the connection attempt to see if current SSID equals with the SSID that we're trying to connect. if its "0x", you've connected with nothing. so we can say that your password incorrect or something else prevents you to connect this network that i did not foreseen. if connection attempt unsuccessful, we remove that configuration so you wont deal with it again in case of wrong password entered. */
+      /* I did not find more efficient way to get this around so i checked connected SSID after 3000ms after the connection attempt to see if current SSID equals with the SSID that we're trying to connect. if its "0x", you've connected with nothing. so we can say that your password incorrect or something else prevents you to connect this network that i did not foreseen. if connection attempt unsuccessful, we remove that configuration so you wont deal with it again in case of wrong password entered. */
     break;
   }
 });
