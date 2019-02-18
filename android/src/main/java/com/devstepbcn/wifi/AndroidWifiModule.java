@@ -12,6 +12,7 @@ import com.facebook.react.shell.MainReactPackage;
 import com.facebook.soloader.SoLoader;
 
 import android.content.pm.PackageInstaller;
+import android.net.wifi.SupplicantState;
 import android.os.HandlerThread;
 import android.provider.Settings;
 import android.net.wifi.ScanResult;
@@ -30,6 +31,7 @@ import android.content.IntentFilter;
 import android.content.BroadcastReceiver;
 import android.os.Build;
 import android.os.Handler;
+import android.support.annotation.MainThread;
 import android.util.Log;
 import android.os.Bundle;
 import android.widget.Toast;
@@ -362,13 +364,6 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			return connection;
 		}
 
-		/*
-		 * Buraya geçici bir broadcastReceiver tanımlayacağız.
-		 * enableNetwork ile ilgili bir değişiklik olduğunda bunu yakalayıp bize bildirecek.
-		 * Bu olana kadar, thread.sleep döngüsüyle her 100 ms'de bir kontrol etmek üzere bekleyeceğiz.
-		 * belirlenen döngünün (atıyorum 10 sn) sonunda bir şey gelmezse, false geçeceğiz.
-		 * */
-
    		// enable new network
 		boolean enableNetwork = wifi.enableNetwork(updateNetwork, true);
 
@@ -381,7 +376,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 
 		busy = true;
 		currentSsid = "NONE";
-		info = wifi.getConnectionInfo();
+
 
 
 		// This value should be wrapped in double quotes, so we need to unwrap it.
@@ -391,21 +386,23 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		Handler handler = new Handler(handlerThread.getLooper());
 		handler.postDelayed(new Runnable() {
 			public void run() {
+				info = wifi.getConnectionInfo();
 				currentSsid = info.getSSID();
 				if (currentSsid.startsWith("\"") && currentSsid.endsWith("\"")) {
 					currentSsid = currentSsid.substring(1, currentSsid.length() - 1);
 				}
 				busy = false;
+
 			}
 		}, 3000);
-
 
 		while(true){
 			if(!busy){
 				handlerThread.quit();
 				break;
-			}
+			} else { Thread.yield(); }
 		}
+
 
 		if(currentSsid == "0x"){
 			connection.setStatus(false);
@@ -417,11 +414,30 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 				boolean existingConfRemoved = wifi.removeNetwork(tempConfig.networkId);
 			}
 		} else {
-			if(currentSsid == ssid){
-				connection.setStatus(true);
-				connection.setStatusCode(1000);
-				connection.setResult("Connection Succeeded to: " + currentSsid);
-				return connection;
+			if(currentSsid.equals(ssid)){
+
+				info = wifi.getConnectionInfo();
+
+				ConnectivityManager connManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+				NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+
+				if (mWifi.isConnected()) {
+					connection.setStatus(true);
+					connection.setStatusCode(1000);
+					connection.setResult("Connection Succeeded to: " + currentSsid);
+					return connection;
+				} else {
+					connection.setStatus(false);
+					connection.setStatusCode(1005);
+					connection.setResult("Password Incorrect");
+
+					tempConfig = this.IsExist(ssid);
+					if (tempConfig != null) {
+						wifi.removeNetwork(tempConfig.networkId);
+					}
+
+					return connection;
+				}
 			}
 		}
 
@@ -433,11 +449,6 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	public void disconnect(Callback callback) {
 		boolean result = wifi.disconnect();
 		callback.invoke(result);
-	}
-
-	@ReactMethod
-	public void test(Callback callback) {
-		callback.invoke("WORKSLIKEACHARM");
 	}
 
 	//This method will return current ssid
