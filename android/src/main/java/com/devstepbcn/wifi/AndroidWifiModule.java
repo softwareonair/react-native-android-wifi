@@ -37,6 +37,9 @@ import android.os.Bundle;
 import android.widget.Toast;
 import java.util.List;
 import java.lang.Thread;
+import java.net.HttpURLConnection;
+import java.io.IOException;
+import java.net.URL;
 import android.net.DhcpInfo;
 
 import org.json.JSONArray;
@@ -106,6 +109,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	String currentSsid = "NONE";
 	WifiInfo info;
 	boolean busy = false;
+	boolean isConnected = false;
 
 	//Constructor
 	public AndroidWifiModule(ReactApplicationContext reactContext) {
@@ -418,24 +422,50 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 
 				info = wifi.getConnectionInfo();
 
-				ConnectivityManager connManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
-				NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+				busy = true;
+				isConnected = false;
 
-				if (mWifi.isConnected()) {
+				final HandlerThread handlerThreadCC = new HandlerThread("background-threadCC");
+				handlerThreadCC.start();
+				Handler handlerCC = new Handler(handlerThreadCC.getLooper());
+				handlerCC.postDelayed(new Runnable() {
+					public void run() {
+						ConnectivityManager connManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+						NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+						Log.v("ReactNative", "CC isConnected: " + mWifi.isConnected());
+							if(mWifi.isConnected()){ 
+								isConnected = true; 
+							} else {
+								isConnected = false; 
+							}
+						busy = false;
+					}
+				}, 3000);
+
+				while(true){
+					if(!busy){
+						handlerThreadCC.quit();
+						break;
+					} else { Thread.yield();  Log.v("ReactNative", "YIELDED"); }
+				}
+
+
+				Log.v("ReactNative", "RN isConnected: " + isConnected);
+
+				if(isConnected){
 					connection.setStatus(true);
 					connection.setStatusCode(1000);
 					connection.setResult("Connection Succeeded to: " + currentSsid);
 					return connection;
 				} else {
+					Log.v("ReactNative", "Pass: " + password);
 					connection.setStatus(false);
-					connection.setStatusCode(1005);
 					connection.setResult("Password Incorrect");
-
-					tempConfig = this.IsExist(ssid);
-					if (tempConfig != null) {
-						wifi.removeNetwork(tempConfig.networkId);
-					}
-
+					connection.setStatusCode(1005);
+						tempConfig = this.IsExist(ssid);
+						if(tempConfig != null){
+							wifi.removeNetwork(tempConfig.networkId);
+						}
 					return connection;
 				}
 			}
@@ -443,6 +473,34 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 
 		return connection;
 	}
+
+	@ReactMethod
+	public boolean isConnected() {
+        ConnectivityManager cm = (ConnectivityManager)getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+	    NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+	    if (activeNetwork != null && activeNetwork.isConnected()) {
+	        try {
+	            URL url = new URL("http://www.google.com/");
+	            HttpURLConnection urlc = (HttpURLConnection)url.openConnection();
+	            urlc.setRequestProperty("User-Agent", "test");
+	            urlc.setRequestProperty("Connection", "close");
+	            urlc.setConnectTimeout(1000); // mTimeout is in seconds
+	            urlc.connect();
+	            if (urlc.getResponseCode() == 200) {
+	                return true;
+	            } else {
+	                return false;
+	            }
+	        } catch (IOException e) {
+	            Log.i("warning", "Error checking internet connection", e);
+	            return false;
+	        }
+	    }
+
+	    return false;
+
+	}
+
 
 	//Disconnect current Wifi.
 	@ReactMethod
