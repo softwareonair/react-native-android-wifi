@@ -38,6 +38,10 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.List;
+import java.util.Iterator;
+import java.util.HashSet;
+import java.util.Set;
+
 
 
 
@@ -130,6 +134,36 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		return "AndroidWifiModule";
 	}
 
+	public JSONArray removeDuplicateNetworks(JSONArray wifilist){
+		JSONArray result = new JSONArray();
+
+		try{
+
+		for (int wi = 0; wi < wifilist.length(); wi++) {
+			boolean exists = false;
+			JSONObject wifi = new JSONObject();
+			wifi = wifilist.getJSONObject(wi);
+
+			for (int ri = 0; ri < result.length(); ri++) {
+				JSONObject resultItem = new JSONObject();
+				resultItem = result.getJSONObject(ri);
+
+				if(resultItem.getString("SSID").equals(wifi.getString("SSID"))){
+					exists = true;
+				}
+			}
+			if(!exists){ result.put(wifi); }
+		}
+
+	} catch(Exception ex){
+		Log.v("ReactNative", ex.toString());
+	}
+
+		return result;
+	} 
+
+	
+
 	//Method to load wifi list into string via Callback. Returns a stringified JSONArray
 	@ReactMethod
 	public void loadWifiList(Callback successCallback, Callback errorCallback) {
@@ -148,28 +182,22 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			            wifiObject.put("level", result.level);
 			            wifiObject.put("timestamp", result.timestamp);
 
-			            //softwareonair_2.4GHz20==softwareonair_2.4GHz20
-
 			            if(currentSsid.equals(result.SSID)){ 
 			            	wifiObject.put("connected", true); 
 			            } else {
 			            	wifiObject.put("connected", false);
 			            }
 
-			            //Other fields not added
-			            //wifiObject.put("operatorFriendlyName", result.operatorFriendlyName);
-			            //wifiObject.put("venueName", result.venueName);
-			            //wifiObject.put("centerFreq0", result.centerFreq0);
-			            //wifiObject.put("centerFreq1", result.centerFreq1);
-			            //wifiObject.put("channelWidth", result.channelWidth);
-						//Log.v("ReactNative", "NETWORKRECEIVED: cssid:" + ssid);
 					} catch (JSONException e) {
           				errorCallback.invoke(e.getMessage());
 					}
+
+
+
 					wifiArray.put(wifiObject);
 				}
 			}
-			successCallback.invoke(wifiArray.toString());
+			successCallback.invoke(removeDuplicateNetworks(wifiArray).toString());
 		} catch (IllegalViewOperationException e) {
 			errorCallback.invoke(e.getMessage());
 		}
@@ -190,16 +218,16 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	@ReactMethod
 	public void findAndConnect(String ssid, String password, Callback ssidFound) {
 		List < ScanResult > results = wifi.getScanResults();
-
+		boolean connectionCalled = false;
 		connection = new ConnectionResult(false, "", 0000);
 		for (ScanResult result: results) {
 			String resultString = "" + result.SSID;
 			if (ssid.equals(resultString)) {
 
-
-				connection = connectTo(result, password, ssid);
-
-				//connection = cTo(result, password, ssid);
+				if(!connectionCalled){
+					connection = connectTo(result, password, ssid);
+					connectionCalled = true;
+				}
 			}
 		}
 
@@ -217,6 +245,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		}
 	}
 
+
 	public ConnectionResult connectTo(ScanResult result, String password, String ssid) {
 		connection = new ConnectionResult(false, "Network ID -1", 1008);
 		WifiConfiguration wfc = new WifiConfiguration();
@@ -224,8 +253,9 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		wfc.status = WifiConfiguration.Status.DISABLED;
 		wfc.priority = 40;
 
-		String caps = result.capabilities;
+		authPassed = false;
 
+		String caps = result.capabilities;
 	 	if(caps.indexOf("WPA") > -1 || caps.indexOf("WPA2") > -1){
 	 		wfc.allowedProtocols.set(WifiConfiguration.Protocol.RSN);
 			wfc.allowedProtocols.set(WifiConfiguration.Protocol.WPA);
@@ -261,19 +291,15 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			wfc.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.WEP104);
 			wfc.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.CCMP);
 			wfc.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.TKIP);
+			//authPassed = true;
 	 	}
-
-	 	authPassed = false;
 
 	 	BroadcastReceiver receiver = new BroadcastReceiver() {
 			@Override
 			public void onReceive(Context context, Intent intent) {
 				NetworkInfo info = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
-				//WifiInfo wifiInfo = wifi.getConnectionInfo();
-				//SupplicantState supplicantState = wifiInfo.getSupplicantState();
-				//NetworkInfo.DetailedState supState = wifiInfo.getDetailedStateOf(supplicantState);				
-				
-				if(info.getDetailedState().toString() == "AUTHENTICATING"){
+
+				if(info.getDetailedState().toString() == "OBTAINING_IPADDR"){
 					authPassed = true;
 				};
 				if(authPassed){
@@ -310,21 +336,11 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			};
 		};
 
-		/*
-		disconnected ve diğer meseleleri yapılandır
-
-		AUTHENTICATING'den sonra CONNECTED geldiyse bağlandın,
-		DISCONNECTED geldiyse bağlanamadın.
-		ama şifrenin yanlış olduğunu nereden bileceğiz?
-
-		Apps should instead use the ConnectivityManager.NetworkCallback API to learn about connectivity changes. See ConnectivityManager#registerDefaultNetworkCallback and ConnectivityManager#registerNetworkCallback. These will give a more accurate picture of the connectivity state of the device and let apps react more easily and quickly to changes.
-		*/
 
 		IntentFilter filter = new IntentFilter();
 		filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
 		getReactApplicationContext().getCurrentActivity().registerReceiver(receiver, filter);
 	 	int networkid = wifi.addNetwork(wfc);
-
 	 	if(networkid != -1){
 	 		wifi.disconnect();
 	 		wifi.enableNetwork(networkid, true);
@@ -333,23 +349,14 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	 		while(true){
 				if(!busy){
 					break;
-				} else { Thread.yield();  Log.v("ReactNative", "YIELDED"); }
+				} else { Thread.yield(); }
 			}
+	 	} else {
+	 		connection.status = false;
+	 		connection.statusCode = 1005;
 	 	}
 
 		return connection;
-	 	/*
-			bir inline broadcastReceiver tanımlanıp enableNetwork bu bR'ın onCreate'inde çağırılacak,
-			ardından bir süre bR beklenip belirli sonuçlara göre bR kapatılacak.
-
-
-			Bağlantıdaki değişikliklerin izlenebilmesi için uygulanabilecek yöntemler;
-			ADB logcat kayıtları baz alınacaktır.
-
-			1) enableNetwork çağırılmadan önce timestamp kaydedilecek, çağrı tamamlandıktan sonra logcat kayıtları çekilip, timestamp'dan itibaren 10 saniyelik
-			kayıt incelenecektir.
-			2) Thread içerisinde bir watchdog oluşturulup logcat tepkileriyle anlık sonuç üretilecektir.
-	 	*/
 	}
 
 	public void clearLog(){
