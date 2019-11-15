@@ -41,6 +41,9 @@ import java.util.List;
 import java.util.Iterator;
 import java.util.HashSet;
 import java.util.Set;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 
 
@@ -110,6 +113,8 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	boolean busy = false;
 	boolean isConnected = false;
 	boolean authPassed = false;
+	NetworkInfo networkInfo;
+	ConnectivityManager connectionManager;
 
 	//Constructor
 	public AndroidWifiModule(ReactApplicationContext reactContext) {
@@ -119,6 +124,8 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		cm = new ConnectionManager(reactContext.getBaseContext());
 		cm.enableWifi();
 		this.reactContext = reactContext;
+		connectionManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+		networkInfo = connectionManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
 
 		WifiInfo winfo = wifi.getConnectionInfo();
 		String ssid = winfo.getSSID();
@@ -162,14 +169,20 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		return result;
 	} 
 
-	
-
-	//Method to load wifi list into string via Callback. Returns a stringified JSONArray
 	@ReactMethod
 	public void loadWifiList(Callback successCallback, Callback errorCallback) {
 		try {
 			List < ScanResult > results = wifi.getScanResults();
 			JSONArray wifiArray = new JSONArray();
+
+			 if(networkInfo.isConnected() && currentSsid == "NONE"){
+			    WifiInfo winfo = wifi.getConnectionInfo();
+				String ssid = winfo.getSSID();
+			    if(ssid.startsWith("\"") && ssid.endsWith("\"")) {
+					ssid = ssid.substring(1, ssid.length() - 1);
+				}
+				currentSsid = ssid;
+			}
 
 			for (ScanResult result: results) {
 				JSONObject wifiObject = new JSONObject();
@@ -191,9 +204,6 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 					} catch (JSONException e) {
           				errorCallback.invoke(e.getMessage());
 					}
-
-
-
 					wifiArray.put(wifiObject);
 				}
 			}
@@ -236,9 +246,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 
 	@ReactMethod
 	public void connectionStatus(Callback connectionStatusResult) {
-		ConnectivityManager connManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
-		NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
-		if (mWifi.isConnected()) {
+		if (networkInfo.isConnected()) {
 			connectionStatusResult.invoke(true);
 		} else {
 			connectionStatusResult.invoke(false);
@@ -298,13 +306,12 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			@Override
 			public void onReceive(Context context, Intent intent) {
 				NetworkInfo info = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
-
 				if(info.getDetailedState().toString() == "OBTAINING_IPADDR"){
 					authPassed = true;
 				};
 				if(authPassed){
 					switch(info.getDetailedState().toString()){
-						case "CONNECTED": 
+						case "CONNECTED":
 							connection.status = true;
 							WifiInfo winfo = wifi.getConnectionInfo();
 							String ssid = winfo.getSSID();
@@ -326,7 +333,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 						case "AUTHENTICATING":
 
 						break;
-						default: 
+						default:
 							Log.v("ReactNative", "NETWORKRECEIVED: " + intent.getAction() + ": DEFAULT HIT=" + info.getDetailedState().toString());
 						break;
 					};
@@ -346,10 +353,21 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	 		wifi.enableNetwork(networkid, true);
 	 		wifi.reconnect();
 	 		busy = true;
+	 		Date processBeginTime = new Date();
+
 	 		while(true){
 				if(!busy){
 					break;
-				} else { Thread.yield(); }
+				} else {
+					Date now = new Date();
+					if((now.getTime() - processBeginTime.getTime()) >= 30000){
+						connection.status = false;
+						connection.statusCode = 1007;
+						busy = false;
+					} else {
+						Thread.yield(); 
+					}
+				}
 			}
 	 	} else {
 	 		connection.status = false;
