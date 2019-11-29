@@ -55,6 +55,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		boolean status;
 		String result;
 		int statusCode;
+		
 
 		public  ConnectionResult(boolean status, String result, int statusCode){
 			this.status = status;
@@ -115,6 +116,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	boolean authPassed = false;
 	NetworkInfo networkInfo;
 	ConnectivityManager connectionManager;
+	String wifiState = "NOTSET";
 
 	//Constructor
 	public AndroidWifiModule(ReactApplicationContext reactContext) {
@@ -171,11 +173,12 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 
 	@ReactMethod
 	public void loadWifiList(Callback successCallback, Callback errorCallback) {
+		wifi.startScan();
 		try {
 			List < ScanResult > results = wifi.getScanResults();
 			JSONArray wifiArray = new JSONArray();
 
-			 if(networkInfo.isConnected() && currentSsid == "NONE"){
+			 if(wifiState == "CONNECTED" && currentSsid == "NONE"){
 			    WifiInfo winfo = wifi.getConnectionInfo();
 				String ssid = winfo.getSSID();
 			    if(ssid.startsWith("\"") && ssid.endsWith("\"")) {
@@ -195,7 +198,9 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			            wifiObject.put("level", result.level);
 			            wifiObject.put("timestamp", result.timestamp);
 
-			            if(currentSsid.equals(result.SSID)){ 
+			            //TODO: Burada ilgili wifi'a gerçekten bağlandığımızdan emin olacağız
+
+			            if((wifiState == "NOTSET" || wifiState == "CONNECTED") && currentSsid.equals(result.SSID)){ 
 			            	wifiObject.put("connected", true); 
 			            } else {
 			            	wifiObject.put("connected", false);
@@ -232,10 +237,11 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		connection = new ConnectionResult(false, "", 0000);
 		for (ScanResult result: results) {
 			String resultString = "" + result.SSID;
+			Log.v("ReactNative", "SSIDVERIFICATION: " + ssid + "==" + resultString);
 			if (ssid.equals(resultString)) {
 
 				if(!connectionCalled){
-					connection = connectTo(result, password, ssid);
+					connection = connectTo(result, password, result.SSID);
 					connectionCalled = true;
 				}
 			}
@@ -253,11 +259,20 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		}
 	}
 
+	public void removeConfiguredNetworks(){
+		List<WifiConfiguration> configurations = wifi.getConfiguredNetworks();
+		for (WifiConfiguration wifiConfig : configurations) {
+			wifi.removeNetwork(wifiConfig.networkId);
+	    }
+	    wifi.saveConfiguration();
+	}
 
 	public ConnectionResult connectTo(ScanResult result, String password, String ssid) {
+		Log.v("ReactNative", "TRYINGTOCONNECTWIFI: " + ssid);
 		connection = new ConnectionResult(false, "Network ID -1", 1008);
 		WifiConfiguration wfc = new WifiConfiguration();
 		wfc.SSID = "\"".concat(ssid).concat("\"");
+		this.removeConfiguredNetworks();
 		wfc.status = WifiConfiguration.Status.DISABLED;
 		wfc.priority = 40;
 
@@ -306,6 +321,9 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			@Override
 			public void onReceive(Context context, Intent intent) {
 				NetworkInfo info = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
+
+				wifiState = String.valueOf(info.getState());
+
 				if(info.getDetailedState().toString() == "OBTAINING_IPADDR"){
 					authPassed = true;
 				};
@@ -361,6 +379,8 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 				} else {
 					Date now = new Date();
 					if((now.getTime() - processBeginTime.getTime()) >= 30000){
+						wifi.enableNetwork(networkid, false);
+						this.removeConfiguredNetworks();
 						connection.status = false;
 						connection.statusCode = 1007;
 						busy = false;
@@ -378,14 +398,15 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	}
 
 	public void clearLog(){
-     try {
-         Process process = new ProcessBuilder()
-         .command("logcat", "-c")
-         .redirectErrorStream(true)
-         .start();
-    } catch (IOException e) {
-    }
-}
+	    try {
+	         Process process = new ProcessBuilder()
+	         .command("logcat", "-c")
+	         .redirectErrorStream(true)
+	         .start();
+	    } catch (IOException e) {
+	    }
+	}
+
 
 	@ReactMethod
 	public void disconnect(Callback callback) {
