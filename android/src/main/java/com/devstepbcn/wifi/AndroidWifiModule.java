@@ -41,9 +41,6 @@ import java.util.List;
 import java.util.Iterator;
 import java.util.HashSet;
 import java.util.Set;
-import java.sql.Timestamp;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 
 
 
@@ -55,7 +52,6 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		boolean status;
 		String result;
 		int statusCode;
-		
 
 		public  ConnectionResult(boolean status, String result, int statusCode){
 			this.status = status;
@@ -114,9 +110,6 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	boolean busy = false;
 	boolean isConnected = false;
 	boolean authPassed = false;
-	NetworkInfo networkInfo;
-	ConnectivityManager connectionManager;
-	String wifiState = "NOTSET";
 
 	//Constructor
 	public AndroidWifiModule(ReactApplicationContext reactContext) {
@@ -126,8 +119,6 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		cm = new ConnectionManager(reactContext.getBaseContext());
 		cm.enableWifi();
 		this.reactContext = reactContext;
-		connectionManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
-		networkInfo = connectionManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
 
 		WifiInfo winfo = wifi.getConnectionInfo();
 		String ssid = winfo.getSSID();
@@ -171,21 +162,14 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		return result;
 	} 
 
+	
+
+	//Method to load wifi list into string via Callback. Returns a stringified JSONArray
 	@ReactMethod
 	public void loadWifiList(Callback successCallback, Callback errorCallback) {
-		wifi.startScan();
 		try {
 			List < ScanResult > results = wifi.getScanResults();
 			JSONArray wifiArray = new JSONArray();
-
-			 if(wifiState == "CONNECTED" && currentSsid == "NONE"){
-			    WifiInfo winfo = wifi.getConnectionInfo();
-				String ssid = winfo.getSSID();
-			    if(ssid.startsWith("\"") && ssid.endsWith("\"")) {
-					ssid = ssid.substring(1, ssid.length() - 1);
-				}
-				currentSsid = ssid;
-			}
 
 			for (ScanResult result: results) {
 				JSONObject wifiObject = new JSONObject();
@@ -198,9 +182,7 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			            wifiObject.put("level", result.level);
 			            wifiObject.put("timestamp", result.timestamp);
 
-			            //TODO: Burada ilgili wifi'a gerçekten bağlandığımızdan emin olacağız
-
-			            if((wifiState == "NOTSET" || wifiState == "CONNECTED") && currentSsid.equals(result.SSID)){ 
+			            if(currentSsid.equals(result.SSID)){ 
 			            	wifiObject.put("connected", true); 
 			            } else {
 			            	wifiObject.put("connected", false);
@@ -209,6 +191,9 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 					} catch (JSONException e) {
           				errorCallback.invoke(e.getMessage());
 					}
+
+
+
 					wifiArray.put(wifiObject);
 				}
 			}
@@ -237,11 +222,10 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 		connection = new ConnectionResult(false, "", 0000);
 		for (ScanResult result: results) {
 			String resultString = "" + result.SSID;
-			Log.v("ReactNative", "SSIDVERIFICATION: " + ssid + "==" + resultString);
 			if (ssid.equals(resultString)) {
 
 				if(!connectionCalled){
-					connection = connectTo(result, password, result.SSID);
+					connection = connectTo(result, password, ssid);
 					connectionCalled = true;
 				}
 			}
@@ -252,27 +236,20 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 
 	@ReactMethod
 	public void connectionStatus(Callback connectionStatusResult) {
-		if (networkInfo.isConnected()) {
+		ConnectivityManager connManager = (ConnectivityManager) getReactApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+		NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+		if (mWifi.isConnected()) {
 			connectionStatusResult.invoke(true);
 		} else {
 			connectionStatusResult.invoke(false);
 		}
 	}
 
-	public void removeConfiguredNetworks(){
-		List<WifiConfiguration> configurations = wifi.getConfiguredNetworks();
-		for (WifiConfiguration wifiConfig : configurations) {
-			wifi.removeNetwork(wifiConfig.networkId);
-	    }
-	    wifi.saveConfiguration();
-	}
 
 	public ConnectionResult connectTo(ScanResult result, String password, String ssid) {
-		Log.v("ReactNative", "TRYINGTOCONNECTWIFI: " + ssid);
 		connection = new ConnectionResult(false, "Network ID -1", 1008);
 		WifiConfiguration wfc = new WifiConfiguration();
 		wfc.SSID = "\"".concat(ssid).concat("\"");
-		this.removeConfiguredNetworks();
 		wfc.status = WifiConfiguration.Status.DISABLED;
 		wfc.priority = 40;
 
@@ -317,53 +294,79 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 			//authPassed = true;
 	 	}
 
+	 	/*
+			android.net.conn.CONNECTIVITY_CHANGE_SUPL
+			android.net.conn.CONNECTIVITY_CHANGE
+			android.net.dhcp.DhcpClient.wlan0.KICK:
+	        android.net.dhcp.DhcpClient.wlan0.ONESHOT_TIMEOUT:
+	        android.net.dhcp.DhcpClient.wlan0.RENEW:
+	        android.net.dhcp.DhcpClient.wlan0.TIMEOUT:
+	        android.net.wifi.supplicant.STATE_CHANGE
+	        Sticky action android.net.conn.CONNECTIVITY_CHANGE
+	        Sticky action android.net.wifi.supplicant.STATE_CHANGE
+	 	*/
+
 	 	BroadcastReceiver receiver = new BroadcastReceiver() {
 			@Override
 			public void onReceive(Context context, Intent intent) {
-				NetworkInfo info = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
 
-				wifiState = String.valueOf(info.getState());
+				if(intent.getAction().equals("android.net.wifi.STATE_CHANGE")){
+					NetworkInfo info = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
+					//Log.v("ReactNative", "NETWORKRECEIVED: " + intent.getAction() + " : " + info.getDetailedState().toString());
 
-				if(info.getDetailedState().toString() == "OBTAINING_IPADDR"){
-					authPassed = true;
-				};
-				if(authPassed){
-					switch(info.getDetailedState().toString()){
-						case "CONNECTED":
-							connection.status = true;
-							WifiInfo winfo = wifi.getConnectionInfo();
-							String ssid = winfo.getSSID();
-							if (ssid.startsWith("\"") && ssid.endsWith("\"")) {
-								ssid = ssid.substring(1, ssid.length() - 1);
-							}
-							currentSsid = ssid;
-							busy = false;
-							authPassed = false;
-							getReactApplicationContext().getCurrentActivity().unregisterReceiver(this);
-						break;
-						case "DISCONNECTED":
-							connection.status = false;
-					 		connection.statusCode = 1007;
-					 		busy = false;
-					 		authPassed = false;
-							getReactApplicationContext().getCurrentActivity().unregisterReceiver(this);
-						break;
-						case "AUTHENTICATING":
-
-						break;
-						default:
-							Log.v("ReactNative", "NETWORKRECEIVED: " + intent.getAction() + ": DEFAULT HIT=" + info.getDetailedState().toString());
-						break;
+					if(info.getDetailedState().toString() == "OBTAINING_IPADDR"){
+						authPassed = true;
 					};
-					
-					
-				};
+
+					if(authPassed){
+						switch(info.getDetailedState().toString()){
+							case "CONNECTED": 
+								connection.status = true;
+								WifiInfo winfo = wifi.getConnectionInfo();
+								String ssid = winfo.getSSID();
+								if (ssid.startsWith("\"") && ssid.endsWith("\"")) {
+									ssid = ssid.substring(1, ssid.length() - 1);
+								}
+								currentSsid = ssid;
+								busy = false;
+								authPassed = false;
+								getReactApplicationContext().getCurrentActivity().unregisterReceiver(this);
+							break;
+							case "DISCONNECTED":
+								connection.status = false;
+						 		connection.statusCode = 1007;
+						 		busy = false;
+						 		authPassed = false;
+								getReactApplicationContext().getCurrentActivity().unregisterReceiver(this);
+							break;
+							default: 
+								Log.v("ReactNative", "NETWORKRECEIVED: " + intent.getAction() + ": DEFAULT HIT=" + info.getDetailedState().toString());
+							break;
+						};
+						
+						
+					};
+				}
+
+				if(intent.getAction().equals("android.net.wifi.supplicant.STATE_CHANGE")){
+					SupplicantState supState = intent.getParcelableExtra(WifiManager.EXTRA_NEW_STATE);
+					//Log.v("ReactNative", "NETWORKRECEIVED: " + intent.getAction() + " : " + supState.toString());
+
+					if(supState.toString().equals("INACTIVE")){
+						connection.status = false;
+						connection.statusCode = 1007;
+						busy = false;
+						authPassed = false;
+						getReactApplicationContext().getCurrentActivity().unregisterReceiver(this);
+					}
+				}
 			};
 		};
 
 
 		IntentFilter filter = new IntentFilter();
 		filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+		filter.addAction("android.net.wifi.supplicant.STATE_CHANGE");
 		getReactApplicationContext().getCurrentActivity().registerReceiver(receiver, filter);
 	 	int networkid = wifi.addNetwork(wfc);
 	 	if(networkid != -1){
@@ -371,23 +374,10 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	 		wifi.enableNetwork(networkid, true);
 	 		wifi.reconnect();
 	 		busy = true;
-	 		Date processBeginTime = new Date();
-
 	 		while(true){
 				if(!busy){
 					break;
-				} else {
-					Date now = new Date();
-					if((now.getTime() - processBeginTime.getTime()) >= 30000){
-						wifi.enableNetwork(networkid, false);
-						this.removeConfiguredNetworks();
-						connection.status = false;
-						connection.statusCode = 1007;
-						busy = false;
-					} else {
-						Thread.yield(); 
-					}
-				}
+				} else { Thread.yield(); }
 			}
 	 	} else {
 	 		connection.status = false;
@@ -398,15 +388,14 @@ public class AndroidWifiModule extends ReactContextBaseJavaModule {
 	}
 
 	public void clearLog(){
-	    try {
-	         Process process = new ProcessBuilder()
-	         .command("logcat", "-c")
-	         .redirectErrorStream(true)
-	         .start();
-	    } catch (IOException e) {
-	    }
-	}
-
+     try {
+         Process process = new ProcessBuilder()
+         .command("logcat", "-c")
+         .redirectErrorStream(true)
+         .start();
+    } catch (IOException e) {
+    }
+}
 
 	@ReactMethod
 	public void disconnect(Callback callback) {
